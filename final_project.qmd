@@ -1,0 +1,616 @@
+---
+title: "30538 Final Project: Determinant Factors of EV Charging Stations"
+author: "Yuting Meng (chloemengg, sec3) and Yunzhou Guo(xiaoguozz, sec3)" 
+format: pdf
+date: Dec 5, 2024
+execute:
+  eval: false
+  echo: false
+---
+Research Question: What factors determine the distribution of electric vehicle (EV) charging stations across the United States?Our analysis examines this question through four key dimensions:
+Socioeconomics (Income), Demographic(Population), Environmental(Climate), Economics(Gas Price).
+
+```{python}
+import pandas as pd
+import altair as alt
+import geopandas as gpd
+
+# Load the dataset
+data_path = "data/Electric and Alternative Fuel Charging Stations.csv"  # Adjust path as needed
+df = pd.read_csv(data_path)
+
+# Display the first few rows and column names
+print("Columns in the dataset:", df.columns)
+print(df.head())
+
+# Drop unnecessary columns (adjust based on exploration)
+columns_to_keep = ['Station Name', 'State', 'ZIP', 'Latitude', 'Longitude', 
+                   'EV Connector Types', 'EV Network', 'EV Pricing']
+df = df[columns_to_keep]
+
+# Check for missing values and drop rows with significant missing data
+df = df.dropna()
+
+# Group by State and calculate the number of EV stations
+state_counts = df['State'].value_counts().reset_index()
+state_counts.columns = ['State', 'EV Count']
+```
+
+```{python}
+# Plot distribution of EV stations across states using Altair
+state_bar_chart = alt.Chart(state_counts).mark_bar().encode(
+    x=alt.X('State:N', sort='-y', title="State"),
+    y=alt.Y('EV Count:Q', title="Number of EV Stations"),
+    tooltip=['State', 'EV Count']
+).properties(
+    title="Distribution of EV Stations by State",
+    width=800,
+    height=400
+).configure_axis(
+    labelAngle=-45
+)
+
+state_bar_chart.display()
+```
+
+```{python}
+import geopandas as gpd
+import pandas as pd
+import altair as alt
+
+# Load the shapefile
+shapefile_path = "data/cb_2018_us_state_500k/cb_2018_us_state_500k.shp"
+
+states_gdf = gpd.read_file(shapefile_path)
+print(states_gdf.head())
+```
+
+```{python}
+# Ensure 'State' column in states_gdf matches the format in your data
+states_gdf = states_gdf.rename(columns={"STUSPS": "State"})  # Match state abbreviations
+
+# Merge EV data with shapefile GeoDataFrame
+merged_gdf = states_gdf.merge(state_counts, how="left", on="State")
+merged_gdf['EV Count'] = merged_gdf['EV Count'].fillna(0)  # Fill missing EV counts with 0
+```
+
+```{python}
+print(merged_gdf[['State', 'EV Count']])
+
+# Convert EV dataset states to uppercase if needed
+state_counts['State'] = state_counts['State'].str.upper()
+
+# Merge the EV data with the shapefile GeoDataFrame
+merged_gdf = states_gdf.merge(state_counts, how="left", on="State")
+merged_gdf['EV Count'] = merged_gdf['EV Count'].fillna(0)  # Fill missing EV counts with 0
+
+# Convert GeoDataFrame to GeoJSON for Altair
+geojson_data = merged_gdf.to_json()
+```
+
+
+```{python}
+# Check for missing or invalid geometries
+print("Missing geometries:", merged_gdf['geometry'].isnull().sum())
+
+# Check summary of EV Count
+print("EV Count Summary:")
+print(merged_gdf['EV Count'].describe())
+
+# Check rows with zero or missing EV Count
+print("Rows with zero or missing EV Count:")
+print(merged_gdf[merged_gdf['EV Count'] == 0].head())
+
+
+# Inspect the GeoJSON
+print("GeoJSON Preview:")
+print(geojson_data[:500])
+```
+
+
+```{python}
+import json
+
+# Filter out Alaska and Hawaii (if necessary)
+merged_gdf = merged_gdf[~merged_gdf['State'].isin(['AK', 'HI'])]
+
+# Update the GeoJSON
+geojson_data = merged_gdf.to_json()
+
+# Create the GeoChart with zoomed-in view
+geo_chart = alt.Chart(alt.Data(values=json.loads(geojson_data)['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.EV Count:Q',
+        title='Number of EV Stations',
+        scale=alt.Scale(scheme='reds')
+    ),
+    tooltip=[
+        alt.Tooltip('properties.State:N', title='State'),
+        alt.Tooltip('properties.EV Count:Q', title='EV Count')
+    ]
+).properties(
+    width=800,  # Resize for better focus
+    height=600,
+    title="Geographical Distribution of EV Stations (Lower 48 States)"
+).configure_view(
+    strokeWidth=0  # Remove map outline
+).project(
+    type='albersUsa'  # Focus on contiguous U.S.
+)
+
+# Display the adjusted GeoChart
+geo_chart.display()
+```
+
+![](pic1.png){width=400px}
+
+**Geographical Distribution of EV Stations & Distribution by State**
+
+This map and bar chart highlight the geographical and numerical distribution of EV charging stations across the contiguous United States.California stands out as a clear leader in EV infrastructure, with significantly more charging stations compared to other states.Other states with high EV station counts include Texas, Florida, and New York, likely due to their large populations and urban centers.States with fewer EV charging stations are generally less populous and located in the central or rural regions of the country.
+
+
+**Data and Methodology**
+
+This study utilized multiple datasets, including the EV Charging Stations Dataset (Kaggle) for station locations and network types, the GDP and Personal Income Dataset (BEA.gov) for state-level income and population data, Climate Data (NOAA) for average state temperatures, and Gas Price Data (AAA) for regular gas prices by state. The data wrangling process involved filtering raw datasets to address inconsistencies and standardizing formats across all sources. State names were mapped to their abbreviations to enable seamless merging, and irrelevant columns were removed while handling missing data to maintain integrity. Hawaii and Alaska were excluded due to their geographical isolation, allowing the focus to remain on the mainland 48 states. The final step involved merging all datasets using state-level identifiers to create a unified dataset for analysis.
+
+```{python}
+import pandas as pd
+
+# Load the CSV file
+file_path = 'data/GDP and Personal Income_bea.csv'
+gdp_data = pd.read_csv(file_path)
+
+# Display the first 10 rows to verify the data
+print(gdp_data.head(10))
+```
+
+```{python}
+# Define the mapping of state names to their abbreviations
+state_abbreviations = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+    'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+    'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+    'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+    'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+    'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
+    'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI',
+    'South Carolina': 'SC', 'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+    'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI',
+    'Wyoming': 'WY', 'District of Columbia': 'DC'
+}
+
+# Filter relevant rows and map state names to abbreviations
+gdp_data['State'] = gdp_data['GeoName'].map(state_abbreviations)
+filtered_gdp_data = gdp_data.dropna(subset=['State'])
+
+# Pivot the data to make "Description" column values into separate columns
+pivoted_gdp_data = filtered_gdp_data.pivot(index='State', columns='Description', values='2023')
+
+# Group by personal income and population for analysis
+grouped_gdp_data = pivoted_gdp_data[['Personal income (millions of dollars)', 'Population (persons) 1']]
+
+# Rename columns for simplicity
+grouped_gdp_data.columns = ['Personal_Income_Millions', 'Population']
+
+# Save the processed data into a CSV file
+output_file_path = 'data/Processed_Income_by_state.csv'
+grouped_gdp_data.to_csv(output_file_path)
+
+print(f"Processed data saved to {output_file_path}")
+```
+
+```{python}
+# Load the processed CSV file
+processed_file_path = 'data/Processed_Income_by_state.csv'
+processed_gdp_data = pd.read_csv(processed_file_path)
+
+# Inspect the data
+print(processed_gdp_data.head())
+
+# Plot 1: Bar chart of Personal Income by State
+income_bar_chart = alt.Chart(processed_gdp_data).mark_bar().encode(
+    x=alt.X('State:N', sort='ascending', title='State'),  # Sort states alphabetically
+    y=alt.Y('Personal_Income_Millions:Q', title='Personal Income (in millions of dollars)'),
+    tooltip=['State:N', 'Personal_Income_Millions:Q']
+).properties(
+    title='Personal Income by State',
+    width=800,
+    height=500
+).configure_axis(
+    labelAngle=-45
+)
+
+income_bar_chart.display()
+```
+
+```{python}
+# Plot 2: Bar chart of Population by State
+population_bar_chart = alt.Chart(processed_gdp_data).mark_bar(color='teal').encode(
+    x=alt.X('State:N', sort='ascending', title='State'),  # Sort states alphabetically
+    y=alt.Y('Population:Q', title='Population (in millions)'),
+    tooltip=['State:N', 'Population:Q']
+).properties(
+    title='Population by State',
+    width=800,
+    height=500
+).configure_axis(
+    labelAngle=-45
+)
+
+population_bar_chart.display()
+```
+
+
+```{python}
+# Load the CSV file
+file_path = 'data/us_climate_gov.csv'
+climate_data = pd.read_csv(file_path)
+
+# Display the first 10 rows to verify the data
+print(climate_data.head(10))
+```
+
+```{python}
+state_abbreviations = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+    'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+    'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+    'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+    'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+    'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
+    'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI',
+    'South Carolina': 'SC', 'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+    'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI',
+    'Wyoming': 'WY', 'District of Columbia': 'DC'
+}
+
+# Add state abbreviations to climate data
+climate_data['State Abbreviation'] = climate_data['State'].map(state_abbreviations)
+
+print(climate_data.head(10))
+
+# Exclude Alaska (AK) and Hawaii (HI)
+climate_data_filtered = climate_data[~climate_data['State Abbreviation'].isin(['AK', 'HI'])]
+
+# Verify the filtered dataset
+print(climate_data_filtered.head())
+
+# Save the modified dataset to a new file
+climate_data.to_csv("data/Climate_Data_With_Abbreviations.csv", index=False)
+
+print("Climate data saved with state abbreviations as 'State' to 'Climate_Data_With_Abbreviations.csv'.")
+
+# Bar chart of average temperature by state (excluding HI and AK)
+climate_chart_filtered = alt.Chart(climate_data_filtered).mark_bar(color='lightblue').encode(
+    x=alt.X('State Abbreviation:N', sort='ascending', title='State'),
+    y=alt.Y('Avg Celcius:Q', title='Average Temperature (°C)'),
+    tooltip=['State Abbreviation:N', 'Avg Celcius:Q']
+).properties(
+    title='Average Temperature by State',
+    width=800,
+    height=500
+).configure_axis(
+    labelAngle=-45
+)
+
+climate_chart_filtered.display()
+```
+
+
+```{python}
+# Load the CSV file
+file_path = "data/gas_price_by_state.csv"
+gas_data = pd.read_csv(file_path)
+
+# Clean column names
+gas_data.columns = gas_data.columns.str.strip()
+
+# Mapping state names to abbreviations
+state_abbreviations = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+    'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+    'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+    'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+    'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+    'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
+    'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI',
+    'South Carolina': 'SC', 'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+    'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI',
+    'Wyoming': 'WY'
+}
+
+# Replace state names with abbreviations
+gas_data['State'] = gas_data['State'].map(state_abbreviations)
+
+# Remove dollar signs and convert to numeric
+gas_data['Regular'] = gas_data['Regular'].replace({'\$': ''}, regex=True).astype(float)
+
+# Exclude Alaska (AK) and Hawaii (HI)
+gas_data_filtered = gas_data[~gas_data['State'].isin(['AK', 'HI'])]
+
+# Bar Chart: Regular Gas Prices by State (Alphabetical Order)
+chart_filtered = alt.Chart(gas_data_filtered).mark_bar(color='orange').encode(
+    x=alt.X('State:N', sort='ascending', title='State'),  # Alphabetical order
+    y=alt.Y('Regular:Q', title='Regular Gas Price ($)'),
+    tooltip=['State', 'Regular']
+).properties(
+    title='Regular Gas Prices by State',
+    width=800,
+    height=500
+).configure_axis(
+    labelAngle=-45
+)
+
+chart_filtered.display()
+
+```
+
+![](pic2.png){width=300px}
+
+**Comparison of Factors Influencing EV Charging Stations Through GeoChart**
+
+The GeoCharts provide a comparative analysis of population density, personal income, climate, EV charging station counts, and average gas prices across the United States, highlighting the factors that shape EV infrastructure distribution. States like California and Texas, with the highest total personal income levels, lead in EV adoption and infrastructure development due to their greater funding capabilities. High-density states, including California, New York, and parts of the East Coast, show a strong correlation between population density and the need for EV charging stations to meet urban demand. Climate data reveals that southern states like Florida and Texas experience warmer temperatures, while northern states like Minnesota and Maine are colder, emphasizing the necessity for adaptable EV charging solutions. Additionally, California’s high gas prices, along with those in other West Coast and Northeastern states, create a strong economic incentive for EV adoption, driving a higher concentration of charging stations in these regions.
+
+
+```{python}
+import pandas as pd
+
+# Load the datasets
+climate_file_path = 'data/Climate_Data_With_Abbreviations.csv'
+population_income_file_path = 'data/Processed_Income_by_state.csv'
+charging_stations_file_path = 'data/Electric and Alternative Fuel Charging Stations.csv'
+
+# Read the datasets
+climate_data = pd.read_csv(climate_file_path)
+population_income_data = pd.read_csv(population_income_file_path)
+charging_data = pd.read_csv(charging_stations_file_path)
+
+# Step 1: Process Charging Data
+charging_data_grouped = charging_data.groupby('State').size().reset_index(name='EV_Charging_Stations')
+
+# Step 2: Ensure Consistency in State Abbreviations
+population_income_data['State'] = population_income_data['State'].str.upper()
+charging_data_grouped['State'] = charging_data_grouped['State'].str.upper()
+climate_data['State'] = climate_data['State Abbreviation'].str.upper()
+
+# Step 3: Merge Population and Income Data with EV Charging Data
+merged_data_1 = pd.merge(population_income_data, charging_data_grouped, on='State', how='inner')
+
+# Step 4: Merge with Climate Data
+merged_data_2 = pd.merge(merged_data_1, climate_data[['State', 'Avg Celcius']], on='State', how='inner')
+
+# Step 5: Merge with Gas Price Data
+final_merged_data = pd.merge(merged_data_2, gas_data[['State', 'Regular']], on='State', how='inner')
+
+# Rename the Regular column to gas_price_regular
+final_merged_data.rename(columns={'Regular': 'gas_price_regular'}, inplace=True)
+
+# Inspect and Save the Final Dataset
+print("Final Merged Data:")
+print(final_merged_data.head())
+
+# Save the final merged dataset to a CSV file
+final_merged_data.to_csv("data/Final_Merged_Dataset.csv", index=False)
+print("Final merged dataset saved as 'Final_Merged_Dataset.csv'.")
+```
+
+```{python}
+import altair as alt
+import pandas as pd
+
+data = pd.read_csv('data/Final_Merged_Dataset.csv')
+
+data = data[['Population', 'Avg Celcius', 'Personal_Income_Millions', 'EV_Charging_Stations','gas_price_regular']].dropna()
+
+# Define thresholds to exclude outliers
+threshold_population = data['Population'].quantile(0.95)  # Exclude top 5% by population
+threshold_ev_stations = data['EV_Charging_Stations'].quantile(0.95)  # Exclude top 5% by EV stations
+
+# Filter the data to exclude outliers
+filtered_data = data[(data['Population'] < threshold_population) &
+                     (data['EV_Charging_Stations'] < threshold_ev_stations)]
+
+print (filtered_data.head(10))
+```
+
+
+```{python}
+alt.renderers.enable('default')
+population_chart = alt.Chart(filtered_data).mark_point().encode(
+    x=alt.X('Population', title='Population'),
+    y=alt.Y('EV_Charging_Stations', title='EV Charging Stations'),
+    tooltip=['Population', 'EV_Charging_Stations']
+).properties(
+    title="EV Charging Stations vs Population")
+
+population_chart.show()
+```
+
+```{python}
+climate_chart = alt.Chart(filtered_data).mark_point().encode(
+    x=alt.X('Avg Celcius', title='Average Temperature (°C)'),
+    y=alt.Y('EV_Charging_Stations', title='EV Charging Stations'),
+    tooltip=['Avg Celcius', 'EV_Charging_Stations'] 
+).properties(
+    title="EV Charging Stations vs Average Temperature"
+)
+
+climate_chart.show()
+```
+
+```{python}
+income_chart = alt.Chart(filtered_data).mark_point().encode(
+    x=alt.X('Personal_Income_Millions', title='Personal Income (Millions)'),
+    y=alt.Y('EV_Charging_Stations', title='EV Charging Stations'),
+    tooltip=['Personal_Income_Millions', 'EV_Charging_Stations'] 
+).properties(
+    title="EV Charging Stations vs Personal Income"
+)
+
+income_chart.show()
+```
+
+```{python}
+gas_price_chart = alt.Chart(filtered_data).mark_point().encode(
+    x=alt.X('gas_price_regular', title='Gas Price (Regular)',scale=alt.Scale(domain=[2.5, 4])),
+    y=alt.Y('EV_Charging_Stations', title='EV Charging Stations'),
+    tooltip=['gas_price_regular', 'EV_Charging_Stations'] 
+).properties(
+    title="EV Charging Stations vs Gas Price (Regular)"
+)
+
+gas_price_chart.show()
+```
+
+![](pic3.png){width=500px}
+
+**Key Findings**
+
+Our analysis identified several key factors influencing the distribution of EV charging stations. **Socioeconomic factors** show a strong positive correlation between personal income levels and EV infrastructure, with wealthier states more likely to fund such projects. **Demographic factors**, particularly population size and density, also significantly drive the development of EV charging networks. **Environmental factors**, such as climate, did not exhibit a clear linear relationship with station distribution, although extreme temperatures may indirectly affect battery performance and adoption rates. Lastly, **economic factors** reveal that states with higher gas prices tend to have more EV charging stations, likely due to economic incentives encouraging EV adoption.
+
+```{python}
+import pandas as pd
+import geopandas as gpd
+import json
+import altair as alt
+
+# Load the dataset
+data_path = 'data/Final_Merged_Dataset.csv'
+data = pd.read_csv(data_path)
+
+# Load the shapefile and convert to GeoDataFrame
+shapefile_path = 'data/cb_2018_us_state_500k/cb_2018_us_state_500k.shp'
+states_gdf = gpd.read_file(shapefile_path)
+
+# Ensure consistent naming for merging
+states_gdf = states_gdf.rename(columns={"STUSPS": "State"})
+
+# Merge all required columns (Population, Income, Climate, Gas Price, etc.)
+merged_gdf = states_gdf.merge(data[['State', 'Population', 'Personal_Income_Millions', 'Avg Celcius', 'gas_price_regular']], 
+                              on="State", how="left")
+
+# Inspect the merged GeoDataFrame
+print(merged_gdf.head())
+
+# Convert GeoDataFrame to GeoJSON
+geojson_data = json.loads(merged_gdf.to_json())
+
+# Create the geo chart
+geo_chart = alt.Chart(alt.Data(values=geojson_data['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.gas_price_regular:Q',
+        title='Gas Price (Regular)',
+        scale=alt.Scale(scheme='browns')
+    ),
+    tooltip=[
+        alt.Tooltip('properties.State:N', title='State'),
+        alt.Tooltip('properties.gas_price_regular:Q', title='Gas Price ($)')
+    ]
+).properties(
+    width=800,
+    height=500,
+    title='Gas Prices by State'
+).project(
+    type='albersUsa'
+)
+
+# Display the chart
+geo_chart.display()
+```
+
+
+```{python}
+# Geo chart for Population
+population_chart = alt.Chart(alt.Data(values=geojson_data['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Population:Q', 
+        title='Population',
+        scale=alt.Scale(scheme='blues')
+    ),
+    tooltip=[
+        alt.Tooltip('properties.State:N', title='State'),
+        alt.Tooltip('properties.Population:Q', title='Population')
+    ]
+).properties(
+    width=800,
+    height=500,
+    title='Population by State'
+).project(
+    type='albersUsa'
+)
+
+# Display the chart
+population_chart.display()
+```
+
+```{python}
+# Geo chart for Personal Income
+personal_income_chart = alt.Chart(alt.Data(values=geojson_data['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Personal_Income_Millions:Q',  
+        title='Personal Income (Millions)',
+        scale=alt.Scale(scheme='greens')
+    ),
+    tooltip=[
+        alt.Tooltip('properties.State:N', title='State'),
+        alt.Tooltip('properties.Personal_Income_Millions:Q', title='Personal Income (Millions)')
+    ]
+).properties(
+    width=800,
+    height=500,
+    title='Total Personal Income by State'
+).project(
+    type='albersUsa'
+)
+
+# Display the chart
+personal_income_chart.display()
+```
+
+
+```{python}
+# Geo chart for Average Annual Temperature
+climate_chart = alt.Chart(alt.Data(values=geojson_data['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Avg Celcius:Q',  # Average temperature in Celsius
+        title='Avg Temperature (°C)',
+        scale=alt.Scale(scheme='purples')  
+    ),
+    tooltip=[
+        alt.Tooltip('properties.State:N', title='State'),
+        alt.Tooltip('properties.Avg Celcius:Q', title='Avg Temperature (°C)')
+    ]
+).properties(
+    width=800,
+    height=500,
+    title='Average Annual Temperature by State'
+).project(
+    type='albersUsa' 
+)
+
+# Display the chart
+climate_chart.display()
+```
+
+**Shiny App**
+
+Our **United States EV Charging Stations App**, built with Dash and Plotly, provides an interactive way to explore EV infrastructure trends. The app has two main features: scatter plot exploration and state-level statistics. The scatter plot feature allows users to compare variables such as population, average temperature, personal income, and gas prices against the number of EV charging stations. The plots update dynamically, with outliers filtered out to ensure clarity and meaningful insights. The state-level statistics feature enables users to view detailed data for selected states, including population, average temperature, income, charging stations, and gas prices. This functionality highlights infrastructure gaps and strengths across different regions. To run the app, use the command: **`python basic-app/app.py`**.
+
+![](pic4.png){width=200px}
+
+**Policy Implications**
+
+Equitable investment in EV infrastructure should focus on expanding access in low-income areas, ensuring that all regions benefit from sustainable transportation. High-density urban areas should remain a priority for meeting growing demand. Additionally, charging stations must be designed to withstand extreme temperatures, promoting reliability across diverse climates. Policymakers should also leverage gas price savings to incentivize EV adoption in regions where cost factors heavily influence consumer behavior.s.
+
+**Challenges and Limitations**
+
+This study faced several challenges. Data granularity was limited, making it difficult to differentiate between rural and urban areas. The role of policies and regulations, a key factor in EV infrastructure development, was not directly analyzed.
+
+**Future Work**
+
+Future research should include policy data, analyze rural-urban disparities, and explore battery advancements to improve station efficiency and infrastructure optimization.
+
+
